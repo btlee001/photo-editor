@@ -375,7 +375,7 @@ const AppModal = ({ menuContent, onClose }: any) => {
           <div className="space-y-4 text-gray-600">
             <div className="flex justify-between items-center py-2 border-b border-gray-100">
               <span className="font-medium">当前版本</span>
-              <span className="font-mono bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-sm">v2.2.0</span>
+              <span className="font-mono bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-sm">v1.0.0</span>
             </div>
             <div className="flex justify-between items-center py-2 border-b border-gray-100">
                 <span className="font-medium">构建日期</span>
@@ -387,11 +387,11 @@ const AppModal = ({ menuContent, onClose }: any) => {
           <div className="space-y-4 text-gray-600">
             <p className="text-lg leading-relaxed">一个轻量级、纯前端的 Web 图片编辑器。</p>
             <ul className="list-disc list-inside space-y-2 text-sm pt-2">
-                <li>所有操作均在本地浏览器完成</li>
+                <li>所有操作均在浏览器内完成</li>
                 <li>无需上传图片到服务器</li>
                 <li>保护您的隐私安全</li>
             </ul>
-            <p className="pt-6 text-center text-sm text-gray-400">Designed & Developed by Gemini</p>
+            <p className="pt-6 text-center text-sm text-gray-400">Designed & Developed by Lee</p>
           </div>
         )}
         
