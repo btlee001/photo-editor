@@ -31,6 +31,7 @@ const TouchSlider = ({ value, min, max, onChange, className }: { value: number, 
   const handlePointerDown = (e: React.PointerEvent) => {
     // FIX: Prevent browser scrolling/gestures when starting slide
     e.preventDefault();
+    e.stopPropagation(); // Stop event bubbling
     isDragging.current = true;
     e.currentTarget.setPointerCapture(e.pointerId);
     calculateAndSetValue(e.clientX);
@@ -39,12 +40,15 @@ const TouchSlider = ({ value, min, max, onChange, className }: { value: number, 
   const handlePointerMove = (e: React.PointerEvent) => {
     if (!isDragging.current) return;
     e.preventDefault();
+    e.stopPropagation();
     calculateAndSetValue(e.clientX);
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
-    isDragging.current = false;
-    e.currentTarget.releasePointerCapture(e.pointerId);
+    if (isDragging.current) {
+      isDragging.current = false;
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
   };
 
   const percentage = ((value - min) / (max - min)) * 100;
@@ -52,7 +56,9 @@ const TouchSlider = ({ value, min, max, onChange, className }: { value: number, 
   return (
     <div 
       ref={sliderRef}
-      className={`relative h-10 flex items-center touch-none cursor-pointer ${className}`} // Increased height for easier touch
+      // FIX: Added inline touchAction: 'none' which is critical for mobile drag
+      style={{ touchAction: 'none' }}
+      className={`relative h-10 flex items-center cursor-pointer ${className}`} 
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -317,6 +323,8 @@ export default function App() {
     return (
       <div 
         className="fixed bottom-20 w-full bg-white/95 backdrop-blur-md border-t border-gray-200 p-4 z-30 flex flex-col gap-3 shadow-lg animate-in slide-in-from-bottom-5"
+        // FIX: Ensure toolbar itself doesn't catch scroll events that should be drags
+        style={{ touchAction: 'none' }}
         onTouchStart={(e) => e.stopPropagation()}
         onTouchMove={(e) => e.stopPropagation()}
         onTouchEnd={(e) => e.stopPropagation()}
@@ -413,6 +421,7 @@ export default function App() {
 
     const handlePointerMove = (e: React.PointerEvent) => {
       if (!activeHandle || !startPosRef.current || !containerRef.current) return;
+      // FIX: Prevent browser behavior explicitly in move to keep events firing continuously
       e.preventDefault(); 
       e.stopPropagation();
 
@@ -485,8 +494,9 @@ export default function App() {
 
     const Handle = ({ type, cursor, style }: { type: HandleType, cursor: string, style: React.CSSProperties }) => (
       <div 
-        className="absolute bg-blue-500 border-2 border-white rounded-full shadow-md z-50 touch-none"
-        style={{ width: 24, height: 24, ...style, cursor }}
+        className="absolute bg-blue-500 border-2 border-white rounded-full shadow-md z-50"
+        // FIX: style touchAction 'none' is mandatory for consistent drag
+        style={{ width: 24, height: 24, ...style, cursor, touchAction: 'none' }}
         onPointerDown={(e) => handlePointerDown(type, e)}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -496,8 +506,9 @@ export default function App() {
 
     const SideHandle = ({ type, cursor, style }: { type: HandleType, cursor: string, style: React.CSSProperties }) => (
       <div 
-        className="absolute z-40 touch-none"
-        style={{ ...style, cursor, backgroundColor: 'rgba(0,0,0,0)' }} 
+        className="absolute z-40"
+        // FIX: style touchAction 'none' is mandatory for consistent drag
+        style={{ ...style, cursor, backgroundColor: 'rgba(0,0,0,0)', touchAction: 'none' }} 
         onPointerDown={(e) => handlePointerDown(type, e)}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -506,7 +517,8 @@ export default function App() {
     );
 
     return (
-      <div className="absolute inset-0 z-20 bg-black/50 touch-none" onPointerUp={handlePointerUp}>
+      // FIX: Ensure overlay itself doesn't trap scrolls
+      <div className="absolute inset-0 z-20 bg-black/50" style={{ touchAction: 'none' }} onPointerUp={handlePointerUp}>
         <div 
           className="absolute border-2 border-white shadow-[0_0_0_9999px_rgba(0,0,0,0.6)] box-content -ml-[2px] -mt-[2px]"
           style={{
@@ -558,7 +570,7 @@ export default function App() {
             <div className="space-y-4 text-gray-600">
               <div className="flex justify-between items-center py-2 border-b border-gray-100">
                 <span className="font-medium">当前版本</span>
-                <span className="font-mono bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-sm">v2.0.0</span>
+                <span className="font-mono bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-sm">v2.1.0</span>
               </div>
               <div className="flex justify-between items-center py-2 border-b border-gray-100">
                  <span className="font-medium">构建日期</span>
