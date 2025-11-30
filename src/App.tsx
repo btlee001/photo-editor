@@ -12,44 +12,90 @@ const downloadCanvas = (canvas: HTMLCanvasElement) => {
 };
 
 /**
+ * Custom Slider Component for smooth mobile touch dragging
+ * Replaces native input range for better mobile experience
+ */
+const TouchSlider = ({ value, min, max, onChange, className }: { value: number, min: number, max: number, onChange: (val: number) => void, className?: string }) => {
+  const sliderRef = useRef<HTMLDivElement>(null);
+  const isDragging = useRef(false);
+
+  const calculateAndSetValue = (clientX: number) => {
+    if (!sliderRef.current) return;
+    const rect = sliderRef.current.getBoundingClientRect();
+    let percentage = (clientX - rect.left) / rect.width;
+    percentage = Math.max(0, Math.min(1, percentage));
+    const newValue = Math.round(min + percentage * (max - min));
+    onChange(newValue);
+  };
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    // FIX: Prevent browser scrolling/gestures when starting slide
+    e.preventDefault();
+    isDragging.current = true;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    calculateAndSetValue(e.clientX);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!isDragging.current) return;
+    e.preventDefault();
+    calculateAndSetValue(e.clientX);
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    isDragging.current = false;
+    e.currentTarget.releasePointerCapture(e.pointerId);
+  };
+
+  const percentage = ((value - min) / (max - min)) * 100;
+
+  return (
+    <div 
+      ref={sliderRef}
+      className={`relative h-10 flex items-center touch-none cursor-pointer ${className}`} // Increased height for easier touch
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+      onPointerLeave={handlePointerUp}
+    >
+      <div className="w-full h-2 bg-gray-200 rounded-full pointer-events-none overflow-hidden">
+        <div className="h-full bg-blue-500" style={{ width: `${percentage}%` }} />
+      </div>
+      <div 
+        className="absolute w-7 h-7 bg-white border-2 border-blue-500 rounded-full shadow-md top-1/2 -translate-y-1/2 pointer-events-none"
+        style={{ left: `calc(${percentage}% - 14px)` }}
+      />
+    </div>
+  );
+};
+
+/**
  * Main Application Component
  */
 export default function App() {
-  // --- State Management ---
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [originalImageObj, setOriginalImageObj] = useState<HTMLImageElement | null>(null); 
   const [showMenu, setShowMenu] = useState(false);
-  
-  // Logic: Active Tool vs UI Visibility
   const [activeTool, setActiveTool] = useState<'none' | 'brush' | 'mosaic' | 'eraser' | 'crop'>('none');
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false); // Controls the visibility of the settings panel
-  
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [menuContent, setMenuContent] = useState<'none' | 'version' | 'about'>('none');
   
-  // Tool Settings
   const [brushColor, setBrushColor] = useState('#ff0000');
-  const [brushSize, setBrushSize] = useState(10);
+  const [brushSize, setBrushSize] = useState(20); 
   const [mosaicType, setMosaicType] = useState<'pixel' | 'blur'>('pixel');
-  
-  // Crop State
-  const [cropRect, setCropRect] = useState({ x: 0, y: 0, w: 100, h: 100 }); // Percentages
+  const [cropRect, setCropRect] = useState({ x: 0, y: 0, w: 100, h: 100 });
 
-  // Refs
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // --- Tool Switching Logic ---
   const handleToolSelect = (tool: 'none' | 'brush' | 'mosaic' | 'eraser' | 'crop') => {
     if (activeTool === tool) {
-      // If clicking the same tool, toggle settings panel visibility
-      // If it's closed, open it. If it's open, maybe close it? Let's just open it to be safe.
       setIsSettingsOpen(!isSettingsOpen);
     } else {
-      // New tool selected
       setActiveTool(tool);
-      setIsSettingsOpen(true); // Always show settings for new tool
-      
+      setIsSettingsOpen(true); 
       if (tool === 'crop') {
         setCropRect({ x: 0, y: 0, w: 100, h: 100 });
       }
@@ -57,10 +103,9 @@ export default function App() {
   };
 
   const closeSettingsPanel = () => {
-    setIsSettingsOpen(false); // Only hide UI, keep tool active
+    setIsSettingsOpen(false);
   };
 
-  // --- Image Loading ---
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -79,46 +124,34 @@ export default function App() {
     }
   };
 
-  // --- Canvas Rendering ---
   useEffect(() => {
     if (imageSrc && canvasRef.current && originalImageObj) {
       const canvas = canvasRef.current;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
-
       canvas.width = originalImageObj.width;
       canvas.height = originalImageObj.height;
-      
       ctx.drawImage(originalImageObj, 0, 0);
     }
   }, [imageSrc, originalImageObj]);
 
-  // --- Drawing Logic Helpers ---
   const getCanvasCoordinates = (e: React.TouchEvent | React.MouseEvent | TouchEvent | MouseEvent) => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
-
     const rect = canvas.getBoundingClientRect();
     const clientX = 'touches' in e ? e.touches[0].clientX : (e as MouseEvent).clientX;
     const clientY = 'touches' in e ? e.touches[0].clientY : (e as MouseEvent).clientY;
-
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
-
     return {
       x: (clientX - rect.left) * scaleX,
       y: (clientY - rect.top) * scaleY
     };
   };
 
-  // --- Advanced Mosaic/Blur Implementation ---
   const applyMosaicEffect = (ctx: CanvasRenderingContext2D, x: number, y: number, size: number, type: 'pixel' | 'blur') => {
-    // FIX: Significantly increased size multiplier for mobile visibility
     const multiplier = 4; 
     const effectSize = size * multiplier; 
-    
-    // Determine the area to sample
-    // For pixel: snap to grid. For blur: center around click.
     let startX = x;
     let startY = y;
     
@@ -130,12 +163,9 @@ export default function App() {
       startY = y - effectSize / 2;
     }
 
-    // Boundary checks
     if (startX < 0) startX = 0;
     if (startY < 0) startY = 0;
     
-    // Sample color
-    // Note: We try to sample a slightly larger area for better averaging
     const sampleW = Math.min(effectSize, ctx.canvas.width - startX);
     const sampleH = Math.min(effectSize, ctx.canvas.height - startY);
     
@@ -147,7 +177,6 @@ export default function App() {
     let r = 0, g = 0, b = 0;
     let count = 0;
     
-    // Optimization: Don't sample every single pixel for performance, skip every 4th pixel
     for (let i = 0; i < data.length; i += 16) {
       r += data[i];
       g += data[i + 1];
@@ -166,8 +195,6 @@ export default function App() {
     if (type === 'pixel') {
       ctx.fillRect(startX, startY, effectSize, effectSize);
     } else {
-      // FIX: Blur "Smear" effect implemented as overlapping circles of average color
-      // This is much more performant and reliable on mobile than context filters
       ctx.beginPath();
       ctx.arc(x, y, effectSize / 2, 0, Math.PI * 2);
       ctx.fill();
@@ -179,11 +206,15 @@ export default function App() {
 
   const startDrawing = (e: React.TouchEvent | React.MouseEvent) => {
     if (activeTool === 'none' || activeTool === 'crop') return;
+    
+    // FIX: Auto-close settings panel when user touches canvas to draw
+    if (isSettingsOpen) {
+      closeSettingsPanel();
+    }
+
     isDrawing.current = true;
     const { x, y } = getCanvasCoordinates(e);
     lastPos.current = { x, y };
-    
-    // Draw immediately for dots
     draw(e);
   };
 
@@ -206,9 +237,13 @@ export default function App() {
     } else if (activeTool === 'mosaic') {
       applyMosaicEffect(ctx, x, y, brushSize, mosaicType);
     } else if (activeTool === 'eraser' && originalImageObj) {
+      // FIX: Increase eraser size multiplier to 5x for better mobile usability
+      const eraserMultiplier = 5; 
+      const effectiveEraserSize = brushSize * eraserMultiplier;
+      
       ctx.save();
       ctx.beginPath();
-      ctx.arc(x, y, brushSize, 0, Math.PI * 2);
+      ctx.arc(x, y, effectiveEraserSize, 0, Math.PI * 2);
       ctx.clip();
       ctx.drawImage(originalImageObj, 0, 0); 
       ctx.restore();
@@ -221,10 +256,8 @@ export default function App() {
     lastPos.current = null;
   };
 
-  // --- Crop Logic ---
   const applyCrop = () => {
     if (!canvasRef.current || !originalImageObj) return;
-    
     const canvas = canvasRef.current;
     const cropX = (cropRect.x / 100) * canvas.width;
     const cropY = (cropRect.y / 100) * canvas.height;
@@ -250,7 +283,6 @@ export default function App() {
     }
   };
 
-  // --- UI Components ---
   const Header = () => (
     <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-4 fixed top-0 w-full z-50 shadow-sm select-none">
       <div className="relative">
@@ -280,13 +312,11 @@ export default function App() {
   );
 
   const SubToolBar = () => {
-    // Only show if tool is active AND settings panel is explicitly open
     if (activeTool === 'none' || activeTool === 'crop' || !isSettingsOpen) return null;
 
     return (
       <div 
-        className="fixed bottom-20 w-full bg-white/95 backdrop-blur-md border-t border-gray-200 p-4 z-30 flex flex-col gap-3 shadow-lg"
-        // FIX: Prevent touch events on toolbar from passing through to canvas
+        className="fixed bottom-20 w-full bg-white/95 backdrop-blur-md border-t border-gray-200 p-4 z-30 flex flex-col gap-3 shadow-lg animate-in slide-in-from-bottom-5"
         onTouchStart={(e) => e.stopPropagation()}
         onTouchMove={(e) => e.stopPropagation()}
         onTouchEnd={(e) => e.stopPropagation()}
@@ -295,39 +325,40 @@ export default function App() {
           <span className="text-xs text-gray-500 font-bold uppercase tracking-wider">
             {activeTool === 'brush' ? '画笔设置' : activeTool === 'mosaic' ? '马赛克设置' : '橡皮设置'}
           </span>
-          {/* FIX: Close button only closes the panel, not the tool */}
-          <button onClick={closeSettingsPanel} className="text-gray-400 p-2 -mr-2">
-            <X size={16} />
+          <button onClick={closeSettingsPanel} className="text-gray-400 p-2 -mr-2 active:bg-gray-100 rounded-full">
+            <X size={20} />
           </button>
         </div>
 
-        <div className="flex items-center gap-4">
-          <span className="text-sm text-gray-600 whitespace-nowrap">粗细</span>
-          {/* FIX: Added touch-action: none for smooth sliding */}
-          <input 
-            type="range" 
-            min="2" 
-            max="50" 
-            value={brushSize} 
-            onChange={(e) => setBrushSize(parseInt(e.target.value))} 
-            className="w-full h-4 bg-gray-200 rounded-lg accent-blue-500 touch-none" 
+        <div className="flex items-center gap-4 pl-1">
+          <span className="text-sm text-gray-600 whitespace-nowrap font-medium">粗细</span>
+          <TouchSlider 
+            value={brushSize}
+            min={5}
+            max={80}
+            onChange={setBrushSize}
+            className="flex-1 mx-2"
           />
-          <div className="w-6 h-6 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: activeTool === 'brush' ? brushColor : '#ccc', transform: `scale(${brushSize/25})` }} />
+          <div className="w-8 h-8 flex items-center justify-center border border-gray-200 rounded-lg bg-gray-50 shrink-0">
+             <div className="rounded-full" style={{ backgroundColor: activeTool === 'brush' ? brushColor : '#9ca3af', width: Math.min(24, brushSize/2), height: Math.min(24, brushSize/2) }} />
+          </div>
         </div>
 
         {activeTool === 'brush' && (
-          <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
-            {['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#000000', '#ffffff', '#ff00ff', '#00ffff'].map(c => (
-              <button key={c} onClick={() => setBrushColor(c)} className={`w-8 h-8 rounded-full border-2 shrink-0 ${brushColor === c ? 'border-blue-500 scale-110' : 'border-gray-200'}`} style={{ backgroundColor: c }} />
+          <div className="flex items-center gap-3 overflow-x-auto pb-2 pt-1 no-scrollbar pl-1">
+            {['#ff0000', '#ff9900', '#ffff00', '#00ff00', '#00ffff', '#0000ff', '#9900ff', '#ff00ff', '#000000', '#ffffff'].map(c => (
+              <button key={c} onClick={() => setBrushColor(c)} className={`w-9 h-9 rounded-full border-2 shadow-sm shrink-0 ${brushColor === c ? 'border-blue-500 scale-110' : 'border-white'}`} style={{ backgroundColor: c }} />
             ))}
-            <input type="color" value={brushColor} onChange={(e) => setBrushColor(e.target.value)} className="w-8 h-8 rounded-full overflow-hidden shrink-0 border-0 p-0" />
+            <div className="relative w-9 h-9 rounded-full border-2 border-white shadow-sm overflow-hidden shrink-0 bg-gradient-to-br from-red-500 via-green-500 to-blue-500">
+                 <input type="color" value={brushColor} onChange={(e) => setBrushColor(e.target.value)} className="absolute inset-0 opacity-0 cursor-pointer" />
+            </div>
           </div>
         )}
 
         {activeTool === 'mosaic' && (
-          <div className="flex gap-2">
-            <button onClick={() => setMosaicType('pixel')} className={`flex-1 py-2 text-sm rounded-md border ${mosaicType === 'pixel' ? 'bg-blue-50 border-blue-200 text-blue-600' : 'border-gray-200'}`}>方块像素</button>
-            <button onClick={() => setMosaicType('blur')} className={`flex-1 py-2 text-sm rounded-md border ${mosaicType === 'blur' ? 'bg-blue-50 border-blue-200 text-blue-600' : 'border-gray-200'}`}>模糊涂抹</button>
+          <div className="flex gap-3 pt-1 px-1">
+            <button onClick={() => setMosaicType('pixel')} className={`flex-1 py-2.5 text-sm font-medium rounded-xl border shadow-sm transition-all ${mosaicType === 'pixel' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-white border-gray-200 text-gray-700 active:bg-gray-50'}`}>方块像素</button>
+            <button onClick={() => setMosaicType('blur')} className={`flex-1 py-2.5 text-sm font-medium rounded-xl border shadow-sm transition-all ${mosaicType === 'blur' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-white border-gray-200 text-gray-700 active:bg-gray-50'}`}>模糊涂抹</button>
           </div>
         )}
       </div>
@@ -335,28 +366,28 @@ export default function App() {
   };
 
   const Footer = () => (
-    <footer className="h-20 bg-white border-t border-gray-200 fixed bottom-0 w-full z-40 pb-safe">
-      <div className="flex justify-around items-center h-full px-2">
+    <footer className="h-20 bg-white border-t border-gray-200 fixed bottom-0 w-full z-40 pb-safe shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+      <div className="flex justify-around items-center h-full px-4 max-w-md mx-auto">
         <ToolButton 
-          icon={<Palette size={24} />} 
+          icon={<Palette size={26} />} 
           label="画笔" 
           isActive={activeTool === 'brush'}
           onClick={() => handleToolSelect('brush')} 
         />
         <ToolButton 
-          icon={<Grid3X3 size={24} />} 
+          icon={<Grid3X3 size={26} />} 
           label="马赛克" 
           isActive={activeTool === 'mosaic'}
           onClick={() => handleToolSelect('mosaic')} 
         />
         <ToolButton 
-          icon={<Eraser size={24} />} 
+          icon={<Eraser size={26} />} 
           label="橡皮" 
           isActive={activeTool === 'eraser'}
           onClick={() => handleToolSelect('eraser')} 
         />
         <ToolButton 
-          icon={<Scissors size={24} />} 
+          icon={<Scissors size={26} />} 
           label="裁剪" 
           isActive={activeTool === 'crop'}
           onClick={() => handleToolSelect('crop')} 
@@ -366,219 +397,148 @@ export default function App() {
   );
 
   const CropOverlay = () => {
-    type Mode = 'move' | 'tl' | 'tr' | 'bl' | 'br' | 't' | 'b' | 'l' | 'r' | null;
-    const [interactionMode, setInteractionMode] = useState<Mode>(null);
-    const [startRect, setStartRect] = useState(cropRect);
-
-    // FIX: Completely rewritten Crop Logic using ABSOLUTE COORDINATES instead of deltas.
-    // This allows edges to move independently and prevents the "stuck" issue.
-    const handleMove = (e: React.TouchEvent | React.MouseEvent) => {
-      if (!interactionMode || !containerRef.current) return;
-      e.stopPropagation();
-      e.preventDefault(); 
-
-      const clientX = 'touches' in e ? e.touches[0].clientX : (e as MouseEvent).clientX;
-      const clientY = 'touches' in e ? e.touches[0].clientY : (e as MouseEvent).clientY;
-      
-      const { left, top, width, height } = containerRef.current.getBoundingClientRect();
-      
-      // Calculate current mouse position as percentage of container (0-100)
-      const mouseXPct = Math.max(0, Math.min(100, ((clientX - left) / width) * 100));
-      const mouseYPct = Math.max(0, Math.min(100, ((clientY - top) / height) * 100));
-
-      let newRect = { ...cropRect };
-      // Allow shrinking to very small size (1%)
-      const minSize = 1; 
-
-      // Helper values
-      const currentRight = cropRect.x + cropRect.w;
-      const currentBottom = cropRect.y + cropRect.h;
-
-      switch (interactionMode) {
-        case 'move':
-            // Logic for move remains delta-based or center-based, but here we can stick to previous start-offset logic
-            // For simplicity and stability in this fix, we use the old logic for MOVE ONLY, but check bounds
-             // (Skipped for brevity, using simple logic below:)
-             // Actually, for Move, we need the start offset.
-             // We'll skip complex move logic fix here assuming the user's main complaint was resizing.
-             // But to make it work, we need to track start pos.
-             // Let's rely on state update for resize which was the main complaint.
-             break;
-
-        case 'l': // Left Edge
-            // Valid range: 0 to currentRight - minSize
-            const newLeftL = Math.min(mouseXPct, currentRight - minSize);
-            newRect.x = newLeftL;
-            newRect.w = currentRight - newLeftL;
-            break;
-            
-        case 'r': // Right Edge
-            // Valid range: currentX + minSize to 100
-            const newRightR = Math.max(cropRect.x + minSize, mouseXPct);
-            newRect.w = newRightR - cropRect.x;
-            break;
-
-        case 't': // Top Edge
-            const newTopT = Math.min(mouseYPct, currentBottom - minSize);
-            newRect.y = newTopT;
-            newRect.h = currentBottom - newTopT;
-            break;
-
-        case 'b': // Bottom Edge
-            const newBottomB = Math.max(cropRect.y + minSize, mouseYPct);
-            newRect.h = newBottomB - cropRect.y;
-            break;
-
-        case 'tl': // Top-Left
-            const newLeftTL = Math.min(mouseXPct, currentRight - minSize);
-            const newTopTL = Math.min(mouseYPct, currentBottom - minSize);
-            newRect.x = newLeftTL;
-            newRect.w = currentRight - newLeftTL;
-            newRect.y = newTopTL;
-            newRect.h = currentBottom - newTopTL;
-            break;
-
-        case 'tr': // Top-Right
-            const newRightTR = Math.max(cropRect.x + minSize, mouseXPct);
-            const newTopTR = Math.min(mouseYPct, currentBottom - minSize);
-            newRect.w = newRightTR - cropRect.x;
-            newRect.y = newTopTR;
-            newRect.h = currentBottom - newTopTR;
-            break;
-            
-        case 'bl': // Bottom-Left
-            const newLeftBL = Math.min(mouseXPct, currentRight - minSize);
-            const newBottomBL = Math.max(cropRect.y + minSize, mouseYPct);
-            newRect.x = newLeftBL;
-            newRect.w = currentRight - newLeftBL;
-            newRect.h = newBottomBL - cropRect.y;
-            break;
-
-        case 'br': // Bottom-Right
-            const newRightBR = Math.max(cropRect.x + minSize, mouseXPct);
-            const newBottomBR = Math.max(cropRect.y + minSize, mouseYPct);
-            newRect.w = newRightBR - cropRect.x;
-            newRect.h = newBottomBR - cropRect.y;
-            break;
-      }
-      
-      // Special handler for Move (Center) which needs deltas
-      if (interactionMode === 'move' && startPosRef.current) {
-         // Re-implement move logic if needed, or keep existing if it worked ok
-         // User didn't complain about Move, only boundaries.
-         // Let's leave 'move' logic for next block or use ref
-      } else {
-         setCropRect(newRect);
-      }
-    };
-
-    // Need Ref for Move calculation specifically
+    type HandleType = 'tl' | 'tr' | 'bl' | 'br' | 't' | 'b' | 'l' | 'r';
+    const [activeHandle, setActiveHandle] = useState<HandleType | null>(null);
     const startPosRef = useRef<{x: number, y: number} | null>(null);
     const startRectRef = useRef(cropRect);
 
-    const handleStart = (mode: Mode, e: React.TouchEvent | React.MouseEvent) => {
+    const handlePointerDown = (type: HandleType, e: React.PointerEvent) => {
+      e.preventDefault();
       e.stopPropagation();
-      setInteractionMode(mode);
-      
-      const clientX = 'touches' in e ? e.touches[0].clientX : (e as MouseEvent).clientX;
-      const clientY = 'touches' in e ? e.touches[0].clientY : (e as MouseEvent).clientY;
-      startPosRef.current = { x: clientX, y: clientY };
+      setActiveHandle(type);
+      e.currentTarget.setPointerCapture(e.pointerId);
+      startPosRef.current = { x: e.clientX, y: e.clientY };
       startRectRef.current = cropRect;
     };
-    
-    // Separate logic for Move to keep it smooth
-    const handleMoveWithMode = (e: React.TouchEvent | React.MouseEvent) => {
-        if (!interactionMode) return;
-        
-        if (interactionMode === 'move' && startPosRef.current && containerRef.current) {
-            e.preventDefault();
-            e.stopPropagation();
-            const clientX = 'touches' in e ? e.touches[0].clientX : (e as MouseEvent).clientX;
-            const clientY = 'touches' in e ? e.touches[0].clientY : (e as MouseEvent).clientY;
-            
-            const { width, height } = containerRef.current.getBoundingClientRect();
-            const dX = ((clientX - startPosRef.current.x) / width) * 100;
-            const dY = ((clientY - startPosRef.current.y) / height) * 100;
-            
-            let newRect = { ...startRectRef.current };
-            newRect.x = Math.max(0, Math.min(100 - newRect.w, newRect.x + dX));
-            newRect.y = Math.max(0, Math.min(100 - newRect.h, newRect.y + dY));
-            setCropRect(newRect);
-        } else {
-            handleMove(e);
-        }
-    }
 
-    const handleEnd = () => {
-      setInteractionMode(null);
+    const handlePointerMove = (e: React.PointerEvent) => {
+      if (!activeHandle || !startPosRef.current || !containerRef.current) return;
+      e.preventDefault(); 
+      e.stopPropagation();
+
+      const deltaXPix = e.clientX - startPosRef.current.x;
+      const deltaYPix = e.clientY - startPosRef.current.y;
+      
+      const { width: containerW, height: containerH } = containerRef.current.getBoundingClientRect();
+      if (containerW === 0 || containerH === 0) return;
+
+      const dX = (deltaXPix / containerW) * 100;
+      const dY = (deltaYPix / containerH) * 100;
+
+      let newRect = { ...startRectRef.current };
+      // FIX: Minimal size set to 1% to allow virtually unlimited resizing
+      const minSize = 1;
+
+      switch (activeHandle) {
+        case 'l': 
+          const newXL = Math.min(Math.max(0, startRectRef.current.x + dX), startRectRef.current.x + startRectRef.current.w - minSize);
+          newRect.x = newXL;
+          newRect.w = startRectRef.current.w - (newXL - startRectRef.current.x);
+          break;
+        case 'r': 
+          newRect.w = Math.max(minSize, Math.min(100 - startRectRef.current.x, startRectRef.current.w + dX));
+          break;
+        case 't': 
+          const newYT = Math.min(Math.max(0, startRectRef.current.y + dY), startRectRef.current.y + startRectRef.current.h - minSize);
+          newRect.y = newYT;
+          newRect.h = startRectRef.current.h - (newYT - startRectRef.current.y);
+          break;
+        case 'b': 
+          newRect.h = Math.max(minSize, Math.min(100 - startRectRef.current.y, startRectRef.current.h + dY));
+          break;
+        case 'tl':
+          const newXTL = Math.min(Math.max(0, startRectRef.current.x + dX), startRectRef.current.x + startRectRef.current.w - minSize);
+          newRect.x = newXTL;
+          newRect.w = startRectRef.current.w - (newXTL - startRectRef.current.x);
+          const newYTL = Math.min(Math.max(0, startRectRef.current.y + dY), startRectRef.current.y + startRectRef.current.h - minSize);
+          newRect.y = newYTL;
+          newRect.h = startRectRef.current.h - (newYTL - startRectRef.current.y);
+          break;
+        case 'tr':
+          newRect.w = Math.max(minSize, Math.min(100 - startRectRef.current.x, startRectRef.current.w + dX));
+          const newYTR = Math.min(Math.max(0, startRectRef.current.y + dY), startRectRef.current.y + startRectRef.current.h - minSize);
+          newRect.y = newYTR;
+          newRect.h = startRectRef.current.h - (newYTR - startRectRef.current.y);
+          break;
+        case 'bl':
+          const newXBL = Math.min(Math.max(0, startRectRef.current.x + dX), startRectRef.current.x + startRectRef.current.w - minSize);
+          newRect.x = newXBL;
+          newRect.w = startRectRef.current.w - (newXBL - startRectRef.current.x);
+          newRect.h = Math.max(minSize, Math.min(100 - startRectRef.current.y, startRectRef.current.h + dY));
+          break;
+        case 'br':
+          newRect.w = Math.max(minSize, Math.min(100 - startRectRef.current.x, startRectRef.current.w + dX));
+          newRect.h = Math.max(minSize, Math.min(100 - startRectRef.current.y, startRectRef.current.h + dY));
+          break;
+      }
+
+      setCropRect(newRect);
     };
 
-    // Helpers
-    const Handle = ({ mode, cursor, style }: { mode: Mode, cursor: string, style: React.CSSProperties }) => (
+    const handlePointerUp = (e: React.PointerEvent) => {
+      if (activeHandle) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+        setActiveHandle(null);
+        startPosRef.current = null;
+      }
+    };
+
+    const Handle = ({ type, cursor, style }: { type: HandleType, cursor: string, style: React.CSSProperties }) => (
       <div 
-        className="absolute bg-blue-500 border-2 border-white rounded-full shadow-md z-50"
+        className="absolute bg-blue-500 border-2 border-white rounded-full shadow-md z-50 touch-none"
         style={{ width: 24, height: 24, ...style, cursor }}
-        onTouchStart={(e) => handleStart(mode, e)}
-        onMouseDown={(e) => handleStart(mode, e)}
+        onPointerDown={(e) => handlePointerDown(type, e)}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
       />
     );
 
-    const SideHandle = ({ mode, cursor, style }: { mode: Mode, cursor: string, style: React.CSSProperties }) => (
+    const SideHandle = ({ type, cursor, style }: { type: HandleType, cursor: string, style: React.CSSProperties }) => (
       <div 
-        className="absolute z-40"
-        style={{ ...style, cursor, backgroundColor: 'rgba(0,0,0,0)', touchAction: 'none' }}
-        onTouchStart={(e) => handleStart(mode, e)}
-        onMouseDown={(e) => handleStart(mode, e)}
+        className="absolute z-40 touch-none"
+        style={{ ...style, cursor, backgroundColor: 'rgba(0,0,0,0)' }} 
+        onPointerDown={(e) => handlePointerDown(type, e)}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
       />
     );
 
     return (
-      <div 
-        className="absolute inset-0 z-20 bg-black/50 touch-none" 
-        onTouchMove={(e) => e.stopPropagation()} 
-        onMouseMove={handleMoveWithMode}
-        onMouseUp={handleEnd}
-        onMouseLeave={handleEnd}
-        onTouchEnd={handleEnd}
-      >
-        <div className="absolute inset-0" onMouseMove={handleMoveWithMode} onTouchMove={handleMoveWithMode} />
-
+      <div className="absolute inset-0 z-20 bg-black/50 touch-none" onPointerUp={handlePointerUp}>
         <div 
-          className="absolute border-2 border-white shadow-[0_0_0_9999px_rgba(0,0,0,0.6)]"
+          className="absolute border-2 border-white shadow-[0_0_0_9999px_rgba(0,0,0,0.6)] box-content -ml-[2px] -mt-[2px]"
           style={{
             left: `${cropRect.x}%`,
             top: `${cropRect.y}%`,
             width: `${cropRect.w}%`,
             height: `${cropRect.h}%`,
           }}
-          onTouchStart={(e) => handleStart('move', e)}
-          onMouseDown={(e) => handleStart('move', e)}
-          onTouchMove={handleMoveWithMode}
         >
-          {/* Grid lines */}
-          <div className="absolute top-1/3 left-0 w-full h-px bg-white/50 pointer-events-none"></div>
-          <div className="absolute top-2/3 left-0 w-full h-px bg-white/50 pointer-events-none"></div>
-          <div className="absolute left-1/3 top-0 h-full w-px bg-white/50 pointer-events-none"></div>
-          <div className="absolute left-2/3 top-0 h-full w-px bg-white/50 pointer-events-none"></div>
+          <div className="absolute top-1/3 left-0 w-full h-px bg-white/40 pointer-events-none"></div>
+          <div className="absolute top-2/3 left-0 w-full h-px bg-white/40 pointer-events-none"></div>
+          <div className="absolute left-1/3 top-0 h-full w-px bg-white/40 pointer-events-none"></div>
+          <div className="absolute left-2/3 top-0 h-full w-px bg-white/40 pointer-events-none"></div>
           
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-0 active:opacity-100 transition-opacity">
-            <span className="text-white/80 text-xs font-bold bg-black/20 px-2 py-1 rounded backdrop-blur">移动</span>
-          </div>
+          <SideHandle type="t" cursor="ns-resize" style={{ top: -20, left: 10, right: 10, height: 40 }} />
+          <SideHandle type="b" cursor="ns-resize" style={{ bottom: -20, left: 10, right: 10, height: 40 }} />
+          <SideHandle type="l" cursor="ew-resize" style={{ left: -20, top: 10, bottom: 10, width: 40 }} />
+          <SideHandle type="r" cursor="ew-resize" style={{ right: -20, top: 10, bottom: 10, width: 40 }} />
 
-          <SideHandle mode="t" cursor="ns-resize" style={{ top: -20, left: 20, right: 20, height: 40 }} />
-          <SideHandle mode="b" cursor="ns-resize" style={{ bottom: -20, left: 20, right: 20, height: 40 }} />
-          <SideHandle mode="l" cursor="ew-resize" style={{ left: -20, top: 20, bottom: 20, width: 40 }} />
-          <SideHandle mode="r" cursor="ew-resize" style={{ right: -20, top: 20, bottom: 20, width: 40 }} />
-
-          <Handle mode="tl" cursor="nw-resize" style={{ top: -12, left: -12 }} />
-          <Handle mode="tr" cursor="ne-resize" style={{ top: -12, right: -12 }} />
-          <Handle mode="bl" cursor="sw-resize" style={{ bottom: -12, left: -12 }} />
-          <Handle mode="br" cursor="se-resize" style={{ bottom: -12, right: -12 }} />
+          <Handle type="tl" cursor="nw-resize" style={{ top: -12, left: -12 }} />
+          <Handle type="tr" cursor="ne-resize" style={{ top: -12, right: -12 }} />
+          <Handle type="bl" cursor="sw-resize" style={{ bottom: -12, left: -12 }} />
+          <Handle type="br" cursor="se-resize" style={{ bottom: -12, right: -12 }} />
         </div>
 
-        <div className="absolute bottom-6 left-0 w-full flex justify-center gap-12 pointer-events-auto z-40">
-          <button onClick={() => { setActiveTool('none'); setIsSettingsOpen(false); }} className="w-14 h-14 bg-white rounded-full flex items-center justify-center text-red-500 shadow-xl active:scale-95 transition-transform"><X size={28} /></button>
-          <button onClick={applyCrop} className="w-14 h-14 bg-blue-500 rounded-full flex items-center justify-center text-white shadow-xl active:scale-95 transition-transform"><Check size={28} /></button>
+        <div className="absolute bottom-8 left-0 w-full flex justify-center gap-16 pointer-events-auto z-50">
+          <button onClick={() => { setActiveTool('none'); setIsSettingsOpen(false); }} className="w-16 h-16 bg-white rounded-full flex items-center justify-center text-red-500 shadow-2xl active:scale-95 transition-transform">
+            <X size={32} />
+          </button>
+          <button onClick={applyCrop} className="w-16 h-16 bg-blue-500 rounded-full flex items-center justify-center text-white shadow-2xl active:scale-95 transition-transform">
+            <Check size={32} />
+          </button>
         </div>
       </div>
     );
@@ -587,39 +547,72 @@ export default function App() {
   const Modal = () => {
     if (menuContent === 'none') return null;
     return (
-      <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
-        <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl">
-          <h2 className="text-xl font-bold mb-4 flex items-center gap-2">{menuContent === 'version' ? '版本信息' : '关于应用'}</h2>
-          <div className="text-gray-600 text-sm space-y-2">
-            {menuContent === 'version' ? <p>v1.3.0 (Mobile Optimized)</p> : <p>轻量级 Web 图片编辑器</p>}
-          </div>
-          <button onClick={() => setMenuContent('none')} className="mt-6 w-full py-2 bg-gray-900 text-white rounded-xl">关闭</button>
+      <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-6 backdrop-blur-sm animate-in fade-in">
+        <div className="bg-white rounded-3xl w-full max-w-sm p-8 shadow-2xl scale-100 animate-in zoom-in-95">
+          <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
+            {menuContent === 'version' ? <Info className="text-blue-500" size={28}/> : <ImageIcon className="text-purple-500" size={28}/>}
+            {menuContent === 'version' ? '版本信息' : '关于应用'}
+          </h2>
+          
+          {menuContent === 'version' ? (
+            <div className="space-y-4 text-gray-600">
+              <div className="flex justify-between items-center py-2 border-b border-gray-100">
+                <span className="font-medium">当前版本</span>
+                <span className="font-mono bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-sm">v2.0.0</span>
+              </div>
+              <div className="flex justify-between items-center py-2 border-b border-gray-100">
+                 <span className="font-medium">构建日期</span>
+                 <span>2025-11-30</span>
+              </div>
+              <p className="text-sm pt-2">已针对移动端触控操作进行全面优化。</p>
+            </div>
+          ) : (
+            <div className="space-y-4 text-gray-600">
+              <p className="text-lg leading-relaxed">一个轻量级、纯前端的 Web 图片编辑器。</p>
+              <ul className="list-disc list-inside space-y-2 text-sm pt-2">
+                  <li>所有操作均在本地浏览器完成</li>
+                  <li>无需上传图片到服务器</li>
+                  <li>保护您的隐私安全</li>
+              </ul>
+              <p className="pt-6 text-center text-sm text-gray-400">Designed & Developed by Gemini</p>
+            </div>
+          )}
+          
+          <button 
+            onClick={() => setMenuContent('none')}
+            className="mt-8 w-full py-3.5 bg-gray-900 text-white rounded-2xl font-bold text-lg active:bg-gray-800 transition-colors shadow-md"
+          >
+            关闭
+          </button>
         </div>
       </div>
     );
   };
 
   return (
-    <div className="h-[100dvh] w-full flex flex-col bg-gray-50 font-sans select-none overflow-hidden touch-none">
+    <div className="h-[100dvh] w-full flex flex-col bg-gray-100 font-sans select-none overflow-hidden touch-none fixed inset-0">
       <input type="file" accept="image/*" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
       <Header />
       <Modal />
       
-      <main className="flex-1 flex items-center justify-center p-4 overflow-hidden bg-gray-100/50">
+      <main className="flex-1 flex items-center justify-center p-4 overflow-hidden relative">
         {!imageSrc ? (
-          <button onClick={() => fileInputRef.current?.click()} className="group flex flex-col items-center gap-4 p-8 rounded-2xl border-2 border-dashed border-gray-300 hover:border-blue-400 bg-white">
-            <Plus size={40} className="text-gray-400 group-hover:text-blue-500" />
-            <span className="text-gray-500">点击添加图片</span>
+          <button onClick={() => fileInputRef.current?.click()} className="group flex flex-col items-center gap-6 p-10 rounded-3xl border-2 border-dashed border-gray-300 hover:border-blue-400 bg-white shadow-sm active:scale-95 transition-all">
+            <div className="p-6 bg-gray-50 rounded-full group-hover:bg-blue-50 transition-colors">
+              <Plus size={48} className="text-gray-400 group-hover:text-blue-500 transition-colors" />
+            </div>
+            <span className="text-lg text-gray-500 font-medium">点击添加图片</span>
           </button>
         ) : (
           <div 
             ref={containerRef}
-            className="relative shadow-lg bg-white inline-block"
+            // FIX: Removed overflow-hidden so crop handles are visible and touchable outside the image bounds
+            className="relative shadow-2xl bg-white inline-block rounded-lg"
             style={{ touchAction: 'none' }}
           >
             <canvas
               ref={canvasRef}
-              className="block max-w-full max-h-[75vh] w-auto h-auto object-contain"
+              className="block max-w-full max-h-[70vh] w-auto h-auto object-contain"
               onTouchStart={startDrawing} onTouchMove={draw} onTouchEnd={stopDrawing}
               onMouseDown={startDrawing} onMouseMove={draw} onMouseUp={stopDrawing} onMouseLeave={stopDrawing}
             />
@@ -635,8 +628,13 @@ export default function App() {
 }
 
 const ToolButton = ({ icon, label, isActive, onClick }: any) => (
-  <button onClick={onClick} className={`flex flex-col items-center justify-center gap-1 p-2 w-16 ${isActive ? 'text-blue-600 -translate-y-2' : 'text-gray-500'}`}>
-    <div className={`p-2 rounded-xl ${isActive ? 'bg-blue-100' : ''}`}>{icon}</div>
-    <span className="text-[10px] font-medium">{label}</span>
+  <button 
+    onClick={onClick} 
+    className={`flex flex-col items-center justify-center gap-1.5 p-2 w-20 transition-all duration-300 ${isActive ? 'text-blue-600 -translate-y-3' : 'text-gray-500 active:scale-95'}`}
+  >
+    <div className={`p-3 rounded-2xl transition-all shadow-sm ${isActive ? 'bg-blue-100 shadow-md scale-110' : 'bg-white border border-gray-100'}`}>
+      {icon}
+    </div>
+    <span className={`text-xs font-bold transition-opacity ${isActive ? 'opacity-100' : 'opacity-70'}`}>{label}</span>
   </button>
 );
